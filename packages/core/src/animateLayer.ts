@@ -3,14 +3,14 @@ import { Store } from 'le5le-store';
 import { Pen, PenType } from './models/pen';
 import { Node } from './models/node';
 import { Line } from './models/line';
-import { TopologyData } from './models/data';
 import { Options } from './options';
 import { Layer } from './layer';
 import { s8 } from './utils/uuid';
 import { find } from './utils/canvas';
 
+declare const window: any;
+
 export class AnimateLayer extends Layer {
-  protected data: TopologyData;
   pens = new Map();
 
   private timer: any;
@@ -19,7 +19,6 @@ export class AnimateLayer extends Layer {
   private subscribePlay: any;
   constructor(public options: Options = {}, TID: string) {
     super(TID);
-    this.data = Store.get(this.generateStoreKey('topology-data'));
     Store.set(this.generateStoreKey('LT:AnimateLayer'), this);
 
     if (!this.options.animateColor) {
@@ -31,21 +30,15 @@ export class AnimateLayer extends Layer {
     });
     this.subscribePlay = Store.subscribe(
       this.generateStoreKey('LT:AnimatePlay'),
-      (params: { stop?: boolean; tag?: string; pen?: Pen }) => {
+      (params: { stop?: boolean; tag?: string; pen?: Pen; }) => {
         if (params.stop) {
           if (params.tag) {
-            const pen = find(params.tag, this.data.pens);
-            if (pen && (pen as any).id) {
-              if (this.pens.has((pen as any).id)) {
-                this.pens.get((pen as any).id).animateStart = 0;
+            const pens = find(params.tag, this.data.pens);
+            pens.forEach((item) => {
+              if (this.pens.has(item.id)) {
+                this.pens.get(item.id).animateStart = 0;
               }
-            } else if (pen) {
-              (pen as Pen[]).forEach((item) => {
-                if (this.pens.has(item.id)) {
-                  this.pens.get(item.id).animateStart = 0;
-                }
-              });
-            }
+            });
           }
 
           if (params.pen && this.pens.has(params.pen.id)) {
@@ -191,8 +184,8 @@ export class AnimateLayer extends Layer {
         if (pen.animateFn) {
           if (typeof pen.animateFn === 'function') {
             pen.animateFn();
-          } else if ((window as any)[pen.animateFn]) {
-            (window as any)[pen.animateFn]();
+          } else if (window && window[pen.animateFn]) {
+            window[pen.animateFn]();
           } else {
             // pen.render();
           }

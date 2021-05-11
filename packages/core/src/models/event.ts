@@ -3,6 +3,8 @@ export enum EventType {
   DblClick,
   WebSocket,
   Mqtt,
+  MoveIn,
+  MoveOut
 }
 
 export enum EventAction {
@@ -13,4 +15,5 @@ export enum EventAction {
   SetProps,
   PauseAnimate,
   StopAnimate,
+  Emit
 }
