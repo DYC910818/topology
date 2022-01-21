@@ -146,7 +146,7 @@ export class DivLayer extends Layer {
       if (node.image.indexOf('.gif') < 0) {
         node.gif = false;
         this.canvas.removeChild(this.gifs[node.id]);
-        this.gifs[node.id] = null;
+        this.gifs[node.id] = undefined;
       } else if (node.img) {
         if (this.gifs[node.id] && this.gifs[node.id].src !== node.image) {
           this.gifs[node.id].src = node.image;
@@ -389,11 +389,12 @@ export class DivLayer extends Layer {
     }
     elem.style.position = 'absolute';
     elem.style.outline = 'none';
-    elem.style.left = node.rect.x + 'px';
-    elem.style.top = node.rect.y + 'px';
+    elem.style.left = node.rect.x + this.data.x + 'px';
+    elem.style.top = node.rect.y + this.data.y + 'px';
     elem.style.width = node.rect.width + 'px';
     elem.style.height = node.rect.height + 'px';
-    if (node.rotate || node.offsetRotate) {
+    elem.style.display = node.visible ? 'inline' : 'none';   // 是否隐藏元素
+    if (node.rotate != null || node.offsetRotate != null) {
       elem.style.transform = `rotate(${node.rotate + node.offsetRotate}deg)`;
     }
     if (node.video && videos[node.id] && videos[node.id].media) {
@@ -407,34 +408,35 @@ export class DivLayer extends Layer {
       elem.style.userSelect = 'none';
       elem.style.pointerEvents = 'none';
     }
+    node.globalAlpha <= 1 && (elem.style.opacity = String(node.globalAlpha));
   };
 
   removeDiv = (item: Node) => {
     if (this.curNode && item.id === this.curNode.id) {
-      this.curNode = null;
-      this.media = null;
+      this.curNode = undefined;
+      this.media = undefined;
       this.player.style.top = '-99999px';
     }
     if (item.audio) {
       this.canvas.removeChild(this.audios[item.id].player);
-      this.audios[item.id] = null;
+      this.audios[item.id] = undefined;
     }
     if (item.video) {
       this.canvas.removeChild(videos[item.id].player);
-      videos[item.id] = null;
+      videos[item.id] = undefined;
     }
     if (item.iframe) {
       this.canvas.removeChild(this.iframes[item.id]);
-      this.iframes[item.id] = null;
+      this.iframes[item.id] = undefined;
     }
     if (item.elementId) {
       this.canvas.removeChild(this.elements[item.id]);
-      this.elements[item.id] = null;
+      this.elements[item.id] = undefined;
       item.elementId = '';
     }
     if (item.gif) {
       this.canvas.removeChild(this.gifs[item.id]);
-      this.gifs[item.id] = null;
+      this.gifs[item.id] = undefined;
     }
 
     if (item.children) {

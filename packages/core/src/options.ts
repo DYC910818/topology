@@ -70,6 +70,7 @@ export interface Options {
   ruleColor?: string;
   refresh?: number;
   on?: (event: string, data: any) => void;
+  scroll?: boolean;   // 是否启用滚动条
 }
 
 export const fontKeys = ['fontColor', 'fontFamily', 'fontSize', 'lineHeight', 'textAlign', 'textBaseline'];

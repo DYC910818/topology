@@ -30,7 +30,7 @@ export class Line extends Pen {
   isAnimate: boolean;
   animateFromSize: number;
   animateToSize: number;
-  animateDot: { x: number; y: number; };
+  animateDot: { x: number; y: number };
   animateDotSize: number;
 
   lineJoin: CanvasLineJoin;
@@ -55,7 +55,7 @@ export class Line extends Pen {
       animateFromSize: 0,
       animateToSize: 0,
       animateDotSize: 3,
-      textBackground: '#ffffff'
+      textBackground: '#ffffff',
     };
 
     this.fromData(defaultData, json);
@@ -67,22 +67,22 @@ export class Line extends Pen {
         json.from.direction,
         json.from.anchorIndex,
         json.from.id,
+        json.from.hidden,
         json.autoAnchor
       );
     }
 
     if (json.to) {
-      this.to = new Point(json.to.x, json.to.y, json.to.direction, json.to.anchorIndex, json.to.id, json.autoAnchor);
+      this.to = new Point(json.to.x, json.to.y, json.to.direction, json.to.anchorIndex, json.to.id, json.to.hidden, json.autoAnchor);
     }
 
     // 暂时兼容老数据
-    if (json.name === 'mind' && json.controlPoints && json.controlPoints.length < 3) {
-      json.controlPoints = null;
-      this.calcControlPoints();
+    if (json.name === 'mind' && (!json.controlPoints || json.controlPoints.length > 2)) {
+      json.controlPoints = undefined;
+      this.calcControlPoints(true);
     }
     // end
-
-    if (json.controlPoints) {
+    else if (json.controlPoints) {
       this.controlPoints = [];
       for (const item of json.controlPoints) {
         this.controlPoints.push(new Point(item.x, item.y, item.direction, item.anchorIndex, item.id));
@@ -100,13 +100,13 @@ export class Line extends Pen {
   setFrom(from: Point, fromArrow: string = '') {
     this.from = from;
     this.fromArrow = fromArrow;
-    this.textRect = null;
+    this.textRect = undefined;
   }
 
   setTo(to: Point, toArrow: string = 'triangleSolid') {
     this.to = to;
     this.toArrow = toArrow;
-    this.textRect = null;
+    this.textRect = undefined;
   }
 
   calcControlPoints(force?: boolean) {
@@ -114,7 +114,7 @@ export class Line extends Pen {
       return;
     }
 
-    this.textRect = null;
+    this.textRect = undefined;
     if (this.from && this.to && drawLineFns[this.name]) {
       drawLineFns[this.name].controlPointsFn(this);
     }
@@ -152,6 +152,12 @@ export class Line extends Pen {
         drawLineFns[this.name].drawFn(ctx, this);
       }
       ctx.restore();
+    }
+
+    switch (this.strokeType) {
+      case 1:
+        this.strokeLinearGradient(ctx);
+        break;
     }
 
     if ((!this.isAnimate || this.animateType !== 'comet') && drawLineFns[this.name]) {
@@ -206,7 +212,7 @@ export class Line extends Pen {
           this.from,
           this.controlPoints[0],
           this.controlPoints[1],
-          this.controlPoints[2]
+          this.to
         );
       } else if (this.name !== 'line' && this.controlPoints.length) {
         f = this.controlPoints[this.controlPoints.length - 1];
@@ -215,7 +221,7 @@ export class Line extends Pen {
       ctx.restore();
     }
 
-    if (this.text && !this.isAnimate) {
+    if (this.text && !this.isAnimate && !this.hiddenText) {
       if (!this.textRect) {
         this.calcTextRect();
       }
@@ -223,7 +229,7 @@ export class Line extends Pen {
     }
   }
 
-  pointIn(pt: { x: number; y: number; }) {
+  pointIn(pt: { x: number; y: number }) {
     return drawLineFns[this.name].pointIn(pt, this);
   }
 
@@ -244,8 +250,8 @@ export class Line extends Pen {
         }
         len += lineLen(curPt, this.to);
         return len | 0;
-
       case 'curve':
+      case 'mind':
         return curveLen(this.from, this.controlPoints[0], this.controlPoints[1], this.to);
       default:
         if (drawLineFns[this.name].getLength) {
@@ -256,16 +262,35 @@ export class Line extends Pen {
     return 0;
   }
 
+  strokeLinearGradient(ctx: CanvasRenderingContext2D) {
+    if (!this.lineGradientFromColor || !this.lineGradientToColor) {
+      return;
+    }
+    const from = this.from;
+    const to = this.to;
+
+    // contributor: https://github.com/sunnyguohua/topology
+    const grd = ctx.createLinearGradient(from.x, from.y, to.x, to.y);
+    grd.addColorStop(0, this.lineGradientFromColor);
+    grd.addColorStop(1, this.lineGradientToColor);
+    ctx.strokeStyle = grd;
+  }
+
   calcTextRect() {
+    if (!this.from || !this.to) {
+      this.textRect = undefined;
+      return;
+    }
     const center = this.getCenter();
     let width = Math.abs(this.from.x - this.to.x);
     if (width < 100) {
       width = 100;
     }
+    if (this.text && !this.text.split) {
+      this.text += '';
+    }
     const height =
-      this.lineHeight *
-      this.fontSize *
-      (this.textMaxLine || (this.text && this.text.split('\n').length) || 1);
+      this.lineHeight * this.fontSize * (this.textMaxLine || (this.text && this.text.split('\n').length) || 1);
     this.textRect = new Rect(center.x - width / 2, center.y - height / 2, width, height);
   }
 
@@ -347,7 +372,7 @@ export class Line extends Pen {
           return this.getLinePtByPos(this.to, this.from, pos);
         } else {
           const points: Point[] = [];
-          this.controlPoints.forEach(item => {
+          this.controlPoints.forEach((item) => {
             points.unshift(item);
           });
           points.unshift(this.to);
@@ -390,15 +415,27 @@ export class Line extends Pen {
   calcRectInParent(parent: Pen) {
     const parentW = parent.rect.width - parent.paddingLeftNum - parent.paddingRightNum;
     const parentH = parent.rect.height - parent.paddingTopNum - parent.paddingBottomNum;
-    this.rectInParent = {
-      x: ((this.from.x - parent.rect.x - parent.paddingLeftNum) * 100) / parentW + '%',
-      y: ((this.from.y - parent.rect.y - parent.paddingTopNum) * 100) / parentH + '%',
-      width: 0,
-      height: 0,
-      rotate: 0,
-    };
+    if (this.name === 'lines') {
+      // 钢笔
+      if (Array.isArray(this.children) && this.children.length > 0) {
+        this.rectInParent = {
+          x: (((this.children[0] as Line).from.x - parent.rect.x - parent.paddingLeftNum) * 100) / parentW + '%',
+          y: (((this.children[0] as Line).from.y - parent.rect.y - parent.paddingTopNum) * 100) / parentH + '%',
+          width: 0,
+          height: 0,
+          rotate: 0,
+        };
+      }
+    } else {
+      this.rectInParent = {
+        x: ((this.from.x - parent.rect.x - parent.paddingLeftNum) * 100) / parentW + '%',
+        y: ((this.from.y - parent.rect.y - parent.paddingTopNum) * 100) / parentH + '%',
+        width: 0,
+        height: 0,
+        rotate: 0,
+      };
+    }
   }
-
   // 根据父节点rect计算自己（子节点）的rect
   calcRectByParent(parent: Pen) {
     if (!this.rectInParent) {
@@ -424,12 +461,20 @@ export class Line extends Pen {
       y -= abs(parentW, this.rectInParent.marginBottom);
     }
 
-    this.translate(x - this.from.x, y - this.from.y);
+    if (this.name === 'lines') {
+      if (Array.isArray(this.children) && this.children.length > 0) {
+        const fromX = (this.children[0] as Line).from.x;
+        const fromY = (this.children[0] as Line).from.y;
+        this.translate(x - fromX, y - fromY);
+      }
+    } else {
+      this.translate(x - this.from.x, y - this.from.y);
+    }
   }
 
   initAnimate() {
     this.animateStart = 0;
-    this.animateDot = null;
+    this.animateDot = undefined;
     this.animatePos = 0;
   }
 
@@ -472,7 +517,7 @@ export class Line extends Pen {
         break;
       case 'dot':
       case 'comet':
-        this.lineDash = null;
+        this.lineDash = undefined;
         let pos: any;
         if (this.animateReverse) {
           pos = this.getPointByReversePos(this.animatePos + this.animateToSize);
@@ -507,7 +552,7 @@ export class Line extends Pen {
     const bubbles: any[] = [];
 
     for (let i = 0; i < 30 && this.animatePos - i > 0; ++i) {
-      if (this.animateReverse || 1) {
+      if (this.animateReverse) {
         bubbles.push({
           pos: this.getPointByReversePos(this.animatePos - i * 2 + this.animateToSize),
           a: 1 - i * 0.03,
@@ -537,7 +582,7 @@ export class Line extends Pen {
       this.to.x += x;
       this.to.y += y;
       if (this.text) {
-        this.textRect = null;
+        this.textRect = undefined;
       }
 
       for (const pt of this.controlPoints) {
@@ -552,10 +597,10 @@ export class Line extends Pen {
       }
     }
 
-    Store.set(this.generateStoreKey('pts-') + this.id, null);
+    Store.set(this.generateStoreKey('pts-') + this.id, undefined);
   }
 
-  scale(scale: number, center: { x: number; y: number; }) {
+  scale(scale: number, center: { x: number; y: number }) {
     if (this.from) {
       this.from.x = center.x - (center.x - this.from.x) * scale;
       this.from.y = center.y - (center.y - this.from.y) * scale;
@@ -565,7 +610,7 @@ export class Line extends Pen {
       this.borderWidth *= scale;
       this.fontSize *= scale;
       if (this.text) {
-        this.textRect = null;
+        this.textRect = undefined;
       }
       this.textOffsetX *= scale;
       this.textOffsetY *= scale;
@@ -582,7 +627,7 @@ export class Line extends Pen {
       }
     }
 
-    Store.set(this.generateStoreKey('pts-') + this.id, null);
+    Store.set(this.generateStoreKey('pts-') + this.id, undefined);
   }
 
   hit(pt: Point, padding = 0): any {

@@ -18,7 +18,6 @@ const animateOutsides = [
   'events',
   'wheres',
   'text',
-  'fontColor',
   'fontFamily',
   'fontSize',
   'lineHeight',
@@ -30,8 +29,6 @@ const animateOutsides = [
   'iconFamily',
   'icon',
   'iconSize',
-  'iconColor',
-  'data'
 ];
 
 export class Node extends Pen {
@@ -56,6 +53,7 @@ export class Node extends Pen {
   imageHeight: number;
   imageRatio = true;
   imageAlign: string;
+  imageHide:boolean;
   img: HTMLImageElement;
 
   // 0 - 纯色；1 - 线性渐变；2 - 径向渐变
@@ -83,7 +81,16 @@ export class Node extends Pen {
   rotatedAnchors: Point[] = [];
 
   // nodes移动时，停靠点的参考位置
-  dockWatchers: Point[];
+  // dockWatchers: Point[];
+  
+  get dockWatchers() : Point[] {
+    return [this.rect.center, ...this.rect.toPoints()];
+  }
+  // 不做任何处理，兼容以前版本中节点属性存在该值的
+  set dockWatchers(v : Point[]) {
+  }
+  
+  
 
   animateDuration = 0;
   animateFrames: {
@@ -93,6 +100,7 @@ export class Node extends Pen {
     initState?: Node;
     linear: boolean;
     state: Node;
+    offsetRect: Rect;
   }[] = [];
   animateAlone: boolean;
   animateReady: Node;
@@ -139,6 +147,7 @@ export class Node extends Pen {
       delete this.elementLoaded;
       delete this.elementRendered;
     }
+    delete this.animateReady;
 
     // 兼容老数据
     if (json.children && json.children[0] && json.children[0].parentRect) {
@@ -188,7 +197,7 @@ export class Node extends Pen {
     }
     if (!cloneState && json.animateFrames && json.animateFrames.length) {
       for (const item of json.animateFrames) {
-        item.children = null;
+        item.children = undefined;
         if (item.initState) {
           item.initState = Node.cloneState(item.initState);
         }
@@ -199,8 +208,8 @@ export class Node extends Pen {
     this.animateType = json.animateType
       ? json.animateType
       : json.animateDuration
-        ? 'custom'
-        : '';
+      ? 'custom'
+      : '';
     this.init(cloneState);
 
     if (json.init && json.img && !json.image) {
@@ -218,9 +227,9 @@ export class Node extends Pen {
             child.calcRectByParent(this);
             break;
           default:
+            Node.prototype.calcRectByParent.apply(item, [this]);
             child = new Node(item);
             child.parentId = this.id;
-            child.calcRectByParent(this);
             (child as Node).init(cloneState);
             break;
         }
@@ -239,7 +248,7 @@ export class Node extends Pen {
   }
 
   restore(state?: Node) {
-    if (!state) {
+    if (!state && this.animateReady) {
       state = Node.cloneState(this.animateReady);
     }
     if (!state) {
@@ -308,7 +317,6 @@ export class Node extends Pen {
 
     if (!cloneState) {
       this.addToDiv();
-      this.initAnimate();
     }
   }
 
@@ -349,20 +357,20 @@ export class Node extends Pen {
     this.paddingBottomNum = abs(this.rect.height, this.paddingBottom);
   }
 
-  setChildrenIds() {
-    if (!this.children) {
-      return;
-    }
+  // setChildrenIds() {
+  //   if (!this.children) {
+  //     return;
+  //   }
 
-    for (const item of this.children) {
-      item.id = s8();
-      switch (item.type) {
-        case PenType.Node:
-          (item as Node).setChildrenIds();
-          break;
-      }
-    }
-  }
+  //   for (const item of this.children) {
+  //     item.id = s8();
+  //     switch (item.type) {
+  //       case PenType.Node:
+  //         (item as Node).setChildrenIds();
+  //         break;
+  //     }
+  //   }
+  // }
 
   draw(ctx: CanvasRenderingContext2D) {
     if (!drawNodeFns[this.name]) {
@@ -379,13 +387,15 @@ export class Node extends Pen {
         break;
     }
 
+    switch(this.strokeType){
+      case 1:
+        this.strokeLinearGradient(ctx);
+        break;
+    }
+
+
     // Draw shape.
     drawNodeFns[this.name](ctx, this);
-
-    // Draw text.
-    if (this.name !== 'text' && this.text) {
-      text(ctx, this);
-    }
 
     // Draw image.
     if (this.image || (this.img && this.elementId === '')) {
@@ -397,6 +407,41 @@ export class Node extends Pen {
       iconfont(ctx, this);
       ctx.restore();
     }
+
+    // Draw text.
+    if (this.name !== 'text' && this.text && !this.hiddenText) {
+      text(ctx, this);
+    }
+  }
+
+  strokeLinearGradient(ctx: CanvasRenderingContext2D) {
+    if (!this.lineGradientFromColor || !this.lineGradientToColor) {
+      return;
+    }
+    const from = new Point(this.rect.x, this.rect.center.y);
+    const to = new Point(this.rect.ex, this.rect.center.y);
+    if (this.lineGradientAngle % 90 === 0 && this.lineGradientAngle % 180) {
+      if (this.lineGradientAngle % 270) {
+        from.x = this.rect.center.x;
+        from.y = this.rect.y;
+        to.x = this.rect.center.x;
+        to.y = this.rect.ey;
+      } else {
+        from.x = this.rect.center.x;
+        from.y = this.rect.ey;
+        to.x = this.rect.center.x;
+        to.y = this.rect.y;
+      }
+    } else if (this.lineGradientAngle) {
+      from.rotate(this.lineGradientAngle, this.rect.center);
+      to.rotate(this.lineGradientAngle, this.rect.center);
+    }
+
+    // contributor: https://github.com/sunnyguohua/topology
+    const grd = ctx.createLinearGradient(from.x, from.y, to.x, to.y);
+    grd.addColorStop(0, this.lineGradientFromColor);
+    grd.addColorStop(1, this.lineGradientToColor);
+    ctx.strokeStyle = grd;
   }
 
   drawBkLinearGradient(ctx: CanvasRenderingContext2D) {
@@ -455,7 +500,7 @@ export class Node extends Pen {
 
   drawImg(ctx: CanvasRenderingContext2D) {
     if (this.lastImage !== this.image) {
-      this.img = null;
+      this.img = undefined;
       if (this.lastImage && this.lastImage.indexOf('.gif') > 0) {
         Store.set(this.generateStoreKey('LT:addDiv'), this);
       }
@@ -524,8 +569,12 @@ export class Node extends Pen {
           ctx.rotate((this.iconRotate * Math.PI) / 180);
           ctx.translate(-rect.center.x, -rect.center.y);
         }
+        if(this.imageHide){
+          //  在业务层面去自定义绘制图片
+        }else{
+          ctx.drawImage(this.img, x, y, w, h);
 
-        ctx.drawImage(this.img, x, y, w, h);
+        }
         ctx.restore();
         return;
       } else if (images[this.image]) {
@@ -699,7 +748,7 @@ export class Node extends Pen {
     this.rectInParent = {
       x:
         ((this.rect.x - parent.rect.x - parent.paddingLeftNum) * 100) /
-        parentW +
+          parentW +
         '%',
       y:
         ((this.rect.y - parent.rect.y - parent.paddingTopNum) * 100) / parentH +
@@ -713,10 +762,10 @@ export class Node extends Pen {
     };
   }
 
-  getDockWatchers() {
-    this.dockWatchers = this.rect.toPoints();
-    this.dockWatchers.unshift(this.rect.center);
-  }
+  // getDockWatchers() {
+  //   this.dockWatchers = this.rect.toPoints();
+  //   this.dockWatchers.unshift(this.rect.center);
+  // }
 
   initAnimate() {
     if (!this.animateFrames) {
@@ -730,6 +779,16 @@ export class Node extends Pen {
       this.animateFrames[i].end = passed;
       this.animateFrames[i].initState = Node.cloneState(
         i ? this.animateFrames[i - 1].state : this
+      );
+      this.animateFrames[i].offsetRect = new Rect(
+        this.animateFrames[i].state.rect.x -
+          this.animateFrames[i].initState.rect.x,
+        this.animateFrames[i].state.rect.y -
+          this.animateFrames[i].initState.rect.y,
+        this.animateFrames[i].state.rect.width -
+          this.animateFrames[i].initState.rect.width,
+        this.animateFrames[i].state.rect.height -
+          this.animateFrames[i].initState.rect.height
       );
     }
     this.animateDuration = passed;
@@ -764,7 +823,7 @@ export class Node extends Pen {
     });
   }
 
-  animate = (now: number) => {
+  animate(now: number) {
     if (this.animateStart < 1) {
       return;
     }
@@ -785,10 +844,16 @@ export class Node extends Pen {
       this.animatePos = 0;
       this.animateFrame = 0;
       this.restore();
-      if (this.animateCycle > 0 && ++this.animateCycleIndex >= this.animateCycle) {
+      if (
+        this.animateCycle > 0 &&
+        ++this.animateCycleIndex >= this.animateCycle
+      ) {
         this.animateStart = 0;
         this.animateCycleIndex = 0;
         Store.set(this.generateStoreKey('animateEnd'), this);
+        if (!this.animateAlone) {
+          Store.set(this.generateStoreKey('LT:rectChanged'), this);
+        }
         return;
       }
       this.animateStart = now;
@@ -799,10 +864,9 @@ export class Node extends Pen {
     for (let i = 0; i < this.animateFrames.length; ++i) {
       const item = this.animateFrames[i];
       if (timeline >= item.start && timeline < item.end) {
-        this.dash = item.state.dash;
-        this.strokeStyle = item.state.strokeStyle;
-        this.fillStyle = item.state.fillStyle;
-
+        item.state.dash && (this.dash = item.state.dash);
+        item.state.strokeStyle && (this.strokeStyle = item.state.strokeStyle);
+        item.state.fillStyle && (this.fillStyle = item.state.fillStyle);
         item.state.text && (this.text = item.state.text);
         item.state.fontColor && (this.fontColor = item.state.fontColor);
         item.state.fontFamily && (this.fontFamily = item.state.fontFamily);
@@ -832,27 +896,21 @@ export class Node extends Pen {
 
         if (item.linear) {
           if (item.state.rect.x !== item.initState.rect.x) {
-            this.rect.x =
-              item.initState.rect.x +
-              (item.state.rect.x - item.initState.rect.x) * rate;
+            this.rect.x = item.initState.rect.x + item.offsetRect.x * rate;
             rectChanged = true;
           }
           if (item.state.rect.y !== item.initState.rect.y) {
-            this.rect.y =
-              item.initState.rect.y +
-              (item.state.rect.y - item.initState.rect.y) * rate;
+            this.rect.y = item.initState.rect.y + item.offsetRect.y * rate;
             rectChanged = true;
           }
           if (item.state.rect.width !== item.initState.rect.width) {
             this.rect.width =
-              item.initState.rect.width +
-              (item.state.rect.width - item.initState.rect.width) * rate;
+              item.initState.rect.width + item.offsetRect.width * rate;
             rectChanged = true;
           }
           if (item.state.rect.height !== item.initState.rect.height) {
             this.rect.height =
-              item.initState.rect.height +
-              (item.state.rect.height - item.initState.rect.height) * rate;
+              item.initState.rect.height + item.offsetRect.height * rate;
             rectChanged = true;
           }
           this.rect.ex = this.rect.x + this.rect.width;
@@ -937,10 +995,10 @@ export class Node extends Pen {
                   (item.initState.data[key] || 0) +
                   ((item.state.data[key] || 0) -
                     (item.initState.data[key] || 0)) *
-                  rate;
+                    rate;
               } else if (
                 item.state.data[key] !== undefined &&
-                item.state.data[key] !== null
+                item.state.data[key] !== undefined
               ) {
                 this.data[key] = item.state.data[key];
               }
@@ -962,9 +1020,9 @@ export class Node extends Pen {
         Store.set(this.generateStoreKey('LT:rectChanged'), this);
       }
     }
-  };
+  }
 
-  scale(scale: number, center?: { x: number; y: number; }) {
+  scale(scale: number, center?: { x: number; y: number }) {
     if (!center) {
       center = this.rect.center;
     }
@@ -985,7 +1043,7 @@ export class Node extends Pen {
     if (this.imageHeight) {
       this.imageHeight *= scale;
     }
-    this.lastImage = null;
+    this.lastImage = undefined;
     this.fontSize *= scale;
     this.iconSize *= scale;
     if (typeof this.paddingLeft === 'number') {
@@ -1092,14 +1150,18 @@ export class Node extends Pen {
     }
   }
 
-  translate(x: number, y: number, noAnimate?: boolean) {
+  translate(x: number, y: number) {
     this.rect.x += x;
     this.rect.y += y;
     this.rect.ex = this.rect.x + this.rect.width;
     this.rect.ey = this.rect.y + this.rect.height;
     this.rect.calcCenter();
 
-    if (!noAnimate && this.animateFrames && this.animateFrames.length) {
+    if (this.animateReady) {
+      this.animateReady.translate(x, y);
+    }
+
+    if (this.animateFrames && this.animateFrames.length) {
       for (const frame of this.animateFrames) {
         const { initState, state } = frame;
         if (initState && initState.translate) {
@@ -1125,11 +1187,11 @@ export class Node extends Pen {
       });
     }
 
-    this.init(noAnimate);
+    this.init();
 
     if (this.children) {
       for (const item of this.children) {
-        item.translate(x, y, noAnimate);
+        item.translate(x, y);
       }
     }
   }
@@ -1188,7 +1250,7 @@ export class Node extends Pen {
     };
   }
 
-  hitInSelf(point: { x: number; y: number; }, padding = 0) {
+  hitInSelf(point: { x: number; y: number }, padding = 0) {
     if (this.rotate % 360 === 0) {
       return this.rect.hit(point, padding);
     }
@@ -1200,7 +1262,7 @@ export class Node extends Pen {
     return pointInRect(point, pts);
   }
 
-  hit(pt: { x: number; y: number; }, padding = 0) {
+  hit(pt: { x: number; y: number }, padding = 0) {
     let node: any;
     if (this.hitInSelf(pt, padding)) {
       node = this;
@@ -1236,9 +1298,8 @@ export class Node extends Pen {
     n.elementRendered = false;
     n.elementLoaded = false;
     if (this.name !== 'div') {
-      n.elementId = '';
+      n.elementId = undefined;
     }
-    this.setChildrenIds();
     return n;
   }
 }

@@ -39,10 +39,7 @@ import {
   calcCurveControlPoints,
 } from './lines/curve';
 import {
-  mind,
   calcMindControlPoints,
-  mindControlPoints,
-  pointInMind,
 } from './lines/mind';
 import { triangleSolid, triangle as arrowTriangle } from './arrows/triangle';
 import { diamondSolid, diamond as arrowDiamond } from './arrows/diamond';
@@ -78,6 +75,7 @@ import { graffitiAnchors } from './nodes/graffiti.anchor';
 import { mindNodeAnchors } from './nodes/mindNode.anchor';
 import { mindLine } from './nodes/mindLine';
 import { mindLineAnchors } from './nodes/mindLine.anchor';
+import { lines } from './nodes/lines';
 
 // Functions of drawing a node.
 export const drawNodeFns: any = {};
@@ -105,6 +103,9 @@ function init() {
   // graffiti
   drawNodeFns.graffiti = graffiti;
   anchorsFns.graffiti = graffitiAnchors;
+
+  // lines
+  drawNodeFns.lines = lines;
 
   // Square
   drawNodeFns.square = rectangle;
@@ -193,7 +194,7 @@ function init() {
   textRectFns.line = lineTextRect;
 
   // Image
-  drawNodeFns.image = (ctx: CanvasRenderingContext2D, node: Rect) => {};
+  drawNodeFns.image = (ctx: CanvasRenderingContext2D, node: Rect) => { };
   iconRectFns.image = imageIconRect;
   textRectFns.image = imageTextRect;
   anchorsFns.image = imageAnchors;
@@ -241,10 +242,10 @@ function init() {
     pointIn: pointInCurve,
   };
   drawLineFns.mind = {
-    drawFn: mind,
-    drawControlPointsFn: mindControlPoints,
+    drawFn: curve,
+    drawControlPointsFn: curveControlPoints,
     controlPointsFn: calcMindControlPoints,
-    pointIn: pointInMind,
+    pointIn: pointInCurve,
   };
   // ********end********
 

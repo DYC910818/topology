@@ -4,6 +4,7 @@ import { s8 } from '../utils/uuid';
 import { Rect } from './rect';
 import { EventType, EventAction } from './event';
 
+import { deepClone } from '../utils/clone';
 import { Lock } from './status';
 
 export enum PenType {
@@ -16,14 +17,14 @@ export interface Action {
   url?: string;
   _blank?: string;
   tag?: string;
-  fn?: string;
+  fn?: string | Function;
   params?: any;
 }
 
 export interface Event {
   type: EventType;
   action: EventAction;
-  value: string;
+  value: string | Function;
   params: string;
   name?: string;
 }
@@ -32,11 +33,20 @@ export interface Where {
   key?: string;
   comparison?: string;
   value?: any;
-  fn?: string;
+  fn?: string | Function;
   actions?: Action[];
 }
 
-const eventFns: string[] = ['link', 'doStartAnimate', 'doFn', 'doWindowFn', '', 'doPauseAnimate', 'doStopAnimate', 'doEmit'];
+const eventFns: string[] = [
+  'link',
+  'doStartAnimate',
+  'doFn',
+  'doWindowFn',
+  '',
+  'doPauseAnimate',
+  'doStopAnimate',
+  'doEmit',
+];
 
 const defaultPen: any = {
   name: '',
@@ -44,7 +54,8 @@ const defaultPen: any = {
   visible: true,
   rect: new Rect(0, 0, 0, 0),
   fontColor: '',
-  fontFamily: '"Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial',
+  fontFamily:
+    '"Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial',
   fontSize: 12,
   lineHeight: 1.5,
   fontStyle: 'normal',
@@ -52,6 +63,9 @@ const defaultPen: any = {
   textAlign: 'center',
   textBaseline: 'middle',
   textBackground: '',
+  textDecoration: '',
+  textDecorationDash: 0,
+  textDecorationColor: '',
   animateCycleIndex: 0,
   events: [],
   dash: 0,
@@ -69,7 +83,7 @@ const defaultPen: any = {
 };
 
 export const images: {
-  [key: string]: { img: HTMLImageElement; };
+  [key: string]: { img: HTMLImageElement };
 } = {};
 
 export abstract class Pen {
@@ -99,6 +113,9 @@ export abstract class Pen {
   textAlign: string;
   textBaseline: string;
   textBackground: string;
+  textDecoration: string;
+  textDecorationDash: number;
+  textDecorationColor: string;
 
   text: string;
   textMaxLine: number;
@@ -159,6 +176,14 @@ export abstract class Pen {
     rect?: Rect;
   };
 
+  // 0 - 纯色；1 - 线性渐变
+  strokeType: number;
+
+  // 线条渐变
+  lineGradientFromColor: string;
+  lineGradientToColor: string;
+  lineGradientAngle: number;  // 该属性节点才有意义
+
   paddingTopNum: number;
   paddingBottomNum: number;
   paddingLeftNum: number;
@@ -183,6 +208,9 @@ export abstract class Pen {
   num2: number;
   num3: number;
 
+  hiddenText: boolean;   // 是否隐藏 text
+  displayFormat?: number;    // undefined 显示原内容；0 显示整数
+
   fromData(defaultData: any, json: any) {
     if (!json) {
       json = {};
@@ -204,7 +232,12 @@ export abstract class Pen {
     }
 
     if (this.rect) {
-      this.rect = new Rect(this.rect.x, this.rect.y, this.rect.width, this.rect.height);
+      this.rect = new Rect(
+        this.rect.x,
+        this.rect.y,
+        this.rect.width,
+        this.rect.height
+      );
     }
 
     this.lineWidth = this.lineWidth || 1;
@@ -225,10 +258,10 @@ export abstract class Pen {
     // end
 
     if (this.events) {
-      this.events = JSON.parse(JSON.stringify(this.events));
+      this.events = deepClone(this.events);
     }
     if (this.wheres) {
-      this.wheres = JSON.parse(JSON.stringify(this.wheres));
+      this.wheres = deepClone(this.wheres);
     }
 
     if (typeof this.data === 'object') {
@@ -274,17 +307,18 @@ export abstract class Pen {
 
     if (this.strokeImage) {
       if (this.strokeImage === this.lastStrokeImage && this.strokeImg) {
-        ctx.strokeStyle = ctx.createPattern(this.strokeImg, "repeat");
+        ctx.strokeStyle = ctx.createPattern(this.strokeImg, 'repeat');
       } else {
         this.loadStrokeImg();
       }
     } else {
-      ctx.strokeStyle = this.strokeStyle || Store.get(this.generateStoreKey('LT:color'));
+      ctx.strokeStyle =
+        this.strokeStyle || Store.get(this.generateStoreKey('LT:color'));
     }
 
     if (this.fillImage) {
       if (this.fillImage === this.lastFillImage && this.fillImg) {
-        ctx.fillStyle = ctx.createPattern(this.fillImg, "repeat");
+        ctx.fillStyle = ctx.createPattern(this.fillImg, 'repeat');
       } else {
         this.loadFillImg();
       }
@@ -314,6 +348,9 @@ export abstract class Pen {
           break;
         case 3:
           ctx.setLineDash([10, 10, 2, 10]);
+          break;
+        case 4:
+          ctx.setLineDash([1, 16]);
           break;
       }
     }
@@ -384,7 +421,23 @@ export abstract class Pen {
         continue;
       }
 
-      this[eventFns[item.action]] && this[eventFns[item.action]](item.value, item.params);
+      this[eventFns[item.action]] &&
+        this[eventFns[item.action]](item.value, item.params);
+    }
+  }
+
+  mouseUp() {
+    if (!this.events) {
+      return;
+    }
+
+    for (const item of this.events) {
+      if (item.type !== EventType.MouseUp) {
+        continue;
+      }
+
+      this[eventFns[item.action]] &&
+        this[eventFns[item.action]](item.value, item.params);
     }
   }
 
@@ -398,7 +451,8 @@ export abstract class Pen {
         continue;
       }
 
-      this[eventFns[item.action]] && this[eventFns[item.action]](item.value, item.params);
+      this[eventFns[item.action]] &&
+        this[eventFns[item.action]](item.value, item.params);
     }
   }
 
@@ -412,7 +466,8 @@ export abstract class Pen {
         continue;
       }
 
-      this[eventFns[item.action]] && this[eventFns[item.action]](item.value, item.params);
+      this[eventFns[item.action]] &&
+        this[eventFns[item.action]](item.value, item.params);
     }
   }
 
@@ -426,7 +481,8 @@ export abstract class Pen {
         continue;
       }
 
-      this[eventFns[item.action]] && this[eventFns[item.action]](item.value, item.params);
+      this[eventFns[item.action]] &&
+        this[eventFns[item.action]](item.value, item.params);
     }
   }
 
@@ -436,19 +492,31 @@ export abstract class Pen {
     }
 
     this.wheres.forEach((where) => {
-      if (where.fn.trim()) {
+      if(where.fn instanceof Function){ // 函数类型 fn
+        if (where.fn(this)) {
+          where.actions &&
+            where.actions.forEach((action: any) => {
+              this.doAction(action);
+            });
+        }
+      } else if (where.fn && where.fn.trim()) {  // 字符串类型 fn
         const fn = new Function('pen', where.fn);
         if (fn(this)) {
-          where.actions && where.actions.forEach((action: any) => {
-            this.doAction(action);
-          });
+          where.actions &&
+            where.actions.forEach((action: any) => {
+              this.doAction(action);
+            });
         }
-      } else {
-        const fn = new Function('attr', `return attr ${where.comparison} ${where.value}`);
+      } else {  // fn 为空
+        const fn = new Function(
+          'attr',
+          `return attr ${where.comparison} ${where.value}`
+        );
         if (fn(this[where.key])) {
-          where.actions && where.actions.forEach((action: any) => {
-            this.doAction(action);
-          });
+          where.actions &&
+            where.actions.forEach((action: any) => {
+              this.doAction(action);
+            });
         }
       }
     });
@@ -535,7 +603,7 @@ export abstract class Pen {
   play(pause?: boolean) {
     Store.set(this.generateStoreKey('LT:play'), {
       pen: this,
-      pause
+      pause,
     });
   }
 
@@ -575,7 +643,8 @@ export abstract class Pen {
     }
   }
 
-  private doFn(fn: string, params: string) {
+  private doFn(fn: string | Function, params: string) {
+    if (fn instanceof Function) return fn(this, params);
     const func: Function = new Function('pen', 'params', fn);
     func(this, params);
   }
@@ -601,11 +670,13 @@ export abstract class Pen {
   abstract calcRectByParent(parent: Pen): void;
   abstract draw(ctx: CanvasRenderingContext2D): void;
   abstract translate(x: number, y: number, noAnimate?: boolean): void;
-  abstract scale(scale: number, center?: { x: number; y: number; }): void;
-  abstract hit(point: { x: number; y: number; }, padding?: number): any;
+  abstract scale(scale: number, center?: { x: number; y: number }): void;
+  abstract hit(point: { x: number; y: number }, padding?: number): any;
   abstract clone(): Pen;
   abstract initAnimate(): void;
   abstract animate(now: number): void;
   abstract pauseAnimate(): void;
   abstract stopAnimate(): void;
+
+  abstract strokeLinearGradient(ctx: CanvasRenderingContext2D): void;
 }

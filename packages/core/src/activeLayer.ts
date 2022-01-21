@@ -11,23 +11,25 @@ import { Lock } from './models/status';
 import { drawLineFns } from './middles';
 import { getBezierPoint } from './middles/lines/curve';
 import { Layer } from './layer';
-import { find, flatNodes, getBboxOfPoints, rgba } from './utils';
+import { find, flatNodes, getBboxOfPoints, rgba,deepClone,getRect } from './utils';
 import { Topology } from './core';
 
 export class ActiveLayer extends Layer {
   rotateCPs: Point[] = [];
   sizeCPs: Point[] = [];
   rect: Rect;
+  activeRect: Rect;
 
   pens: Pen[] = [];
 
   rotate = 0;
-
+  lastOffsetX = 0;
+  lastOffsetY = 0;
   // 备份初始位置，方便移动事件处理
   initialSizeCPs: Point[] = [];
   nodeRects: Rect[] = [];
-  childrenRects: { [key: string]: Rect } = {};
-  childrenRotate: { [key: string]: number } = {};
+  childrenRects: { [key: string]: Rect; } = {};
+  childrenRotate: { [key: string]: number; } = {};
 
   // nodes移动时，停靠点的参考位置
   dockWatchers: Point[] = [];
@@ -166,7 +168,7 @@ export class ActiveLayer extends Layer {
     this.pens = [];
     this.sizeCPs = [];
     this.rotateCPs = [];
-    Store.set(this.generateStoreKey('LT:activeNode'), null);
+    Store.set(this.generateStoreKey('LT:activeNode'), undefined);
   }
 
   // 即将缩放选中的nodes，备份nodes最初大小，方便缩放比例计算
@@ -221,12 +223,13 @@ export class ActiveLayer extends Layer {
   // pt2 - the point of mouse move.
   resize(
     type: number,
-    pt1: { x: number; y: number },
+    pt1: { x: number; y: number; },
     pt2: {
       x: number;
       y: number;
       ctrlKey?: boolean;
       altKey?: boolean;
+      shiftKey?: boolean;
     }
   ) {
     const p1 = new Point(pt1.x, pt1.y);
@@ -236,25 +239,95 @@ export class ActiveLayer extends Layer {
       p2.rotate(-this.pens[0].rotate, this.nodeRects[0].center);
     }
 
-    let offsetX = p2.x - p1.x;
-    let offsetY = p2.y - p1.y;
+    let x = p2.x - p1.x;
+    let y = p2.y - p1.y;
 
-    const lines: Line[] = [];
 
-    switch (type) {
-      case 0:
-        offsetX = -offsetX;
-        offsetY = -offsetY;
-        break;
-      case 1:
-        offsetY = -offsetY;
-        break;
-      case 3:
-        offsetX = -offsetX;
-        break;
+    let offsetX = x - this.lastOffsetX;
+    let offsetY = y - this.lastOffsetY;
+    this.lastOffsetX = x;
+    this.lastOffsetY = y;
+    const w = this.activeRect.width;
+    const h = this.activeRect.height;
+    if ((pt2 as any).shiftKey) {
+      offsetY = (offsetX * h) / w;
     }
 
-    let i = 0;
+    // const lines: Line[] = [];
+    switch (type) {
+      case 0:
+        if (this.activeRect.width - offsetX < 5 || this.activeRect.height - offsetY < 5) {
+          return;
+        }
+        if (!(pt2 as any).shiftKey) {
+          // offsetX = -offsetX;
+          // offsetY = -offsetY;
+          this.activeRect.x += offsetX;
+          this.activeRect.y += offsetY;
+          this.activeRect.width -= offsetX;
+          this.activeRect.height -= offsetY;
+        }else{
+          offsetX = -offsetX;
+          offsetY = -offsetY;
+          this.activeRect.ex += offsetX;
+          this.activeRect.ey += offsetY;
+          this.activeRect.width += offsetX;
+          this.activeRect.height += offsetY;
+        }
+        break;
+      case 1:
+        // offsetY = -offsetY;
+        if (this.activeRect.width + offsetX < 5 || this.activeRect.height - offsetY < 5) {
+          return;
+        }
+        if (!(pt2 as any).shiftKey) {
+          this.activeRect.ex += offsetX;
+          this.activeRect.y += offsetY;
+          this.activeRect.width += offsetX;
+          this.activeRect.height -= offsetY;
+        }else{
+          // offsetX = -offsetX;
+          // offsetY = -offsetY;
+          this.activeRect.ex += offsetX;
+          this.activeRect.ey += offsetY;
+          this.activeRect.width += offsetX;
+          this.activeRect.height += offsetY;
+        }
+
+        break;
+      case 2:
+        if (this.activeRect.width + offsetX < 5 || this.activeRect.height + offsetY < 5) {
+          return;
+        }
+        this.activeRect.ex += offsetX;
+        this.activeRect.ey += offsetY;
+        this.activeRect.width += offsetX;
+        this.activeRect.height += offsetY;
+        break;
+      case 3:
+        // offsetX = -offsetX;
+        if (this.activeRect.width - offsetX < 5 || this.activeRect.height + offsetY < 5) {
+          return;
+        }
+        if (!(pt2 as any).shiftKey) {
+          this.activeRect.x += offsetX;
+          this.activeRect.ey += offsetY;
+          this.activeRect.width -= offsetX;
+          this.activeRect.height += offsetY;
+        }else{
+          offsetX = -offsetX;
+          offsetY = -offsetY;
+          this.activeRect.ex += offsetX;
+          this.activeRect.ey += offsetY;
+          this.activeRect.width += offsetX;
+          this.activeRect.height += offsetY;
+        }
+
+        break;
+    }
+    const scaleX = this.activeRect.width / w;
+    const scaleY = this.activeRect.height / h;
+    // let i = 0;
     for (const item of this.pens) {
       if (item.locked) {
         continue;
@@ -267,17 +340,44 @@ export class ActiveLayer extends Layer {
           item['oldRect'] = item.rect.clone();
           if (
             !this.options.disableSizeX &&
-            !pt2.altKey &&
+            !pt2.ctrlKey &&
             !(item as Node).disableSizeX
           ) {
-            item.rect.width = this.nodeRects[i].width + offsetX;
+            // item.rect.width = this.nodeRects[i].width + offsetX;
+            item.rect.width *= scaleX;
+            if ((item as Node).imageWidth) {
+              (item as Node).imageWidth *= scaleX;
+            }
           }
           if (
             !this.options.disableSizeY &&
-            !pt2.ctrlKey &&
+            !pt2.altKey &&
             !(item as Node).disableSizeY
           ) {
-            item.rect.height = this.nodeRects[i].height + offsetY;
+            // item.rect.height = this.nodeRects[i].height + offsetY;
+            item.rect.height *= scaleY;
+            if ((item as Node).imageHeight) {
+              (item as Node).imageHeight *= scaleY;
+            }
+          }
+          if (
+            (!this.options.disableSizeX &&
+            pt2.shiftKey &&
+            !(item as Node).disableSizeX) ||
+            (!this.options.disableSizeY &&
+            pt2.shiftKey &&
+            !(item as Node).disableSizeY)
+          ) {
+            // item.rect.width = this.nodeRects[i].width + offsetX;
+            // item.rect.height = this.nodeRects[i].height + offsetY;
+            item.rect.width *= scaleX;
+            item.rect.height *= scaleY;
+            if ((item as Node).imageWidth) {
+              (item as Node).imageWidth *= scaleX;
+            }
+            if ((item as Node).imageHeight) {
+              (item as Node).imageHeight *= scaleY;
+            }
           }
 
           switch (type) {
@@ -305,7 +405,18 @@ export class ActiveLayer extends Layer {
           break;
       }
 
-      ++i;
+      if (item.parentId) {
+        let parent: Node;
+        for (const n of this.data.pens) {
+          if (n.id === item.parentId) {
+            parent = n as Node;
+            item.calcRectInParent(parent);
+            break;
+          }
+        }
+      }
+
+      // ++i;
     }
 
     this.updateLines();
@@ -397,15 +508,14 @@ export class ActiveLayer extends Layer {
       pens = this.pens;
     }
 
-    const nodesLines = flatNodes(pens);
-    const allLines = flatNodes(this.data.pens);
+    const allPens = flatNodes(this.data.pens);
+    const allLines = allPens.lines;
+    let nodes: Node[] = allPens.nodes;
+    if (!this.options.autoAnchor) {  // 非自动瞄点，只要活动层的 nodes
+      nodes = flatNodes(pens).nodes;
+    }
     const lines: Line[] = [];
-    const allNodes = flatNodes(this.data.pens).nodes;
-    for (const line of allLines.lines) {
-      let nodes: Pen[] = nodesLines.nodes;
-      if (this.options.autoAnchor) {
-        nodes = allNodes;
-      }
+    for (const line of allLines) {
       for (const item of nodes) {
         let cnt = 0;
         if (line.from && line.from.id === item.id) {
@@ -443,8 +553,8 @@ export class ActiveLayer extends Layer {
         if (cnt && !this.data.manualCps) {
           line.calcControlPoints();
         }
-        line.textRect = null;
-        Store.set(this.generateStoreKey('pts-') + line.id, null);
+        line.textRect = undefined;
+        Store.set(this.generateStoreKey('pts-') + line.id, undefined);
         lines.push(line);
       }
     }
@@ -537,6 +647,7 @@ export class ActiveLayer extends Layer {
         return true;
       }
     }
+    return false;
   }
 
   hasInAll(pen: Pen, pens?: Pen[]) {
@@ -556,6 +667,7 @@ export class ActiveLayer extends Layer {
         }
       }
     }
+    return false;
   }
 
   render(ctx: CanvasRenderingContext2D) {
@@ -591,8 +703,8 @@ export class ActiveLayer extends Layer {
       if (this.data.locked && item instanceof Node) {
         const tmp = new Node(item);
         tmp.setTID(TID);
-        tmp.data = null;
-        tmp.fillStyle = null;
+        tmp.data = undefined;
+        tmp.fillStyle = undefined;
         tmp.bkType = 0;
         tmp.icon = '';
         tmp.image = '';
@@ -631,6 +743,7 @@ export class ActiveLayer extends Layer {
     }
 
     if (this.pens.length === 1 && this.pens[0].type === PenType.Line) {
+      ctx.restore();  // 对应前面的 save() , 保持状态一致
       return;
     }
 
@@ -692,7 +805,17 @@ export class ActiveLayer extends Layer {
 
     ctx.restore();
   }
-
+  calcActiveRect() {
+    if (this.pens.length === 1) {
+      if(this.pens[0].rect.height === 0){
+        // 处理直线这种高度为0的情况
+        this.pens[0].rect.height = 1;
+      }
+      this.activeRect = deepClone(this.pens[0].rect);
+    } else {
+      this.activeRect = getRect(this.pens);
+    }
+  }
   getDockWatchers() {
     if (this.pens.length === 1) {
       this.dockWatchers = this.nodeRects[0].toPoints();

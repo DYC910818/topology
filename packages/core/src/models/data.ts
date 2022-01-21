@@ -12,10 +12,13 @@ export interface TopologyData {
   fromArrow: string;
   toArrow: string;
   lineWidth?: number;
+  x: number;   // 画布的相对位置
+  y: number;
   scale: number;
   locked: Lock;
   bkImage?: string;
   bkImageRect?: Rect;
+  bkImageStatic?: boolean;
   bkColor?: string;
   grid?: boolean;
   gridColor?: string;
@@ -35,6 +38,8 @@ export interface TopologyData {
   tooltip?: boolean | number;
   socketEvent?: boolean | number;
   socketFn?: string;
+  initJS?: string;   // 初始化时所执行 js
+  data?: any;
 }
 
 export function createData(json?: any, tid?: string) {
@@ -44,7 +49,9 @@ export function createData(json?: any, tid?: string) {
     fromArrow: '',
     toArrow: 'triangleSolid',
     scale: 1,
-    locked: Lock.None
+    locked: Lock.None,
+    x: 0,
+    y: 0,
   };
 
   if (typeof json === 'string') {
@@ -97,20 +104,4 @@ export function createData(json?: any, tid?: string) {
   tid && Store.set(tid + '-topology-data', data);
 
   return data;
-}
-
-export function deepClone(o?: any) {
-  if (Array.isArray(o)) {
-    const arr = [];
-    o.forEach(item => { arr.push(deepClone(item)); });
-    return arr;
-  } else if (typeof o === 'object') {
-    const _o = {};
-    for (let key in o) {
-      _o[key] = deepClone(o[key]);
-    }
-    return _o;
-  }
-
-  return o;
 }
